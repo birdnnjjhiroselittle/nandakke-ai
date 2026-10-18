@@ -1,0 +1,12 @@
+{
+  "name": "なんだっけAI",
+  "short_name": "なんだっけ",
+  "description": "会話や動画を一緒に聞いて、知らない言葉をあなた向けに解説するアプリ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f7fb",
+  "theme_color": "#4338ca",
+  "lang": "ja",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
