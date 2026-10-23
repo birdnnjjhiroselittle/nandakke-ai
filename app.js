@@ -14,7 +14,10 @@ document.querySelectorAll("nav button").forEach((btn) =>
     document.querySelectorAll("nav button, .tab").forEach((el) => el.classList.remove("active"));
     btn.classList.add("active");
     $(`#tab-${btn.dataset.tab}`).classList.add("active");
-    if (btn.dataset.tab === "dict") renderDict();
+    if (btn.dataset.tab === "dict") {
+      renderDict();
+      renderSceneOptions();
+    }
   }),
 );
 
@@ -41,14 +44,17 @@ function showTerm(t) {
 }
 
 /** AIが拾った言葉をじしょに保存して表示する */
-async function rememberAndShow(found, context) {
+async function rememberAndShow(found, context, scene) {
   for (const f of found) {
     const old = await getTerm(f.word);
     if (old?.known) continue;
     const now = Date.now();
+    // どの場面で・どんな文脈で出会ったかを記録しておく（復習ショートで使う）
+    const sightings = [...(old?.sightings ?? []), { scene, at: now, context }].slice(-20);
     const term = {
       ...f,
       context,
+      sightings,
       detail: old?.detail,
       count: (old?.count ?? 0) + 1,
       known: false,
@@ -140,12 +146,13 @@ async function sendPending(force = false) {
   session.inflight = true;
   const upTo = session.text.length;
   const context = session.text.slice(Math.max(0, session.sentUpTo - 300), session.sentUpTo);
+  const scene = session.scene; // 送信中に場面が変わっても、聞いたときの場面で記録する
   try {
     const known = (await allTerms()).filter((t) => t.known).slice(0, 300).map((t) => t.word);
     const found = await findTerms({ newText, context, profile: profile(), known, skip: [...session.words] });
     session.sentUpTo = upTo;
     session.lastSentAt = Date.now();
-    await rememberAndShow(found, newText.slice(0, 200));
+    await rememberAndShow(found, newText.slice(0, 200), scene);
     if (session.listening) setStatus("🎙 聞いています…");
   } catch (err) {
     setStatus(err.message, true);
@@ -160,7 +167,8 @@ async function startListening() {
     return;
   }
   recognition ??= setupRecognition();
-  Object.assign(session, { listening: true, text: "", sentUpTo: 0, lastSentAt: Date.now(), words: new Set() });
+  const scene = $("#scene").value.trim() || `${new Date().toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })}の会話`;
+  Object.assign(session, { listening: true, scene, text: "", sentUpTo: 0, lastSentAt: Date.now(), words: new Set() });
   recognition.start();
   timer = setInterval(sendPending, 3000);
   // 画面を消さない（ちらっと見られるように）
@@ -205,7 +213,7 @@ $("#lookup-form").addEventListener("submit", async (e) => {
     const context = session.text.slice(-300);
     const t = await explainTerm({ word, context, profile: profile(), detailed: false });
     $("#lookup").value = "";
-    await rememberAndShow([t], context);
+    await rememberAndShow([t], context, session.listening ? session.scene : "直接調べた");
     setStatus(session.listening ? "🎙 聞いています…" : "");
   } catch (err) {
     setStatus(err.message, true);
@@ -245,6 +253,131 @@ async function renderDict() {
         .join("")
     : `<p class="empty">${dictFilter === "known" ? "「知ってた」にした言葉はまだありません。" : "まだ言葉がありません。「聞く」から始めましょう。"}</p>`;
 }
+
+// ---------- 🎬 復習ショート（約30秒・読み上げ付き） ----------
+const SHORT_SECONDS = 30;
+const TODAY = "__today__";
+
+// 古いデータ（場面の記録がない言葉）も「場面なし」として扱う
+const sightingsOf = (t) => t.sightings ?? [{ scene: "場面なし", at: t.lastSeenAt, context: t.context }];
+
+async function renderSceneOptions() {
+  const scenes = new Map(); // 場面名 → 最後に出会った時刻
+  for (const t of await allTerms()) {
+    for (const s of sightingsOf(t)) scenes.set(s.scene, Math.max(scenes.get(s.scene) ?? 0, s.at));
+  }
+  const names = [...scenes.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  $("#short-scene").innerHTML =
+    `<option value="${TODAY}">今日の分</option>` + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+}
+
+/** 場面に合う言葉を選び、約30秒に収まるだけ並べる */
+async function pickShortTerms(sceneKey) {
+  const today = new Date().toDateString();
+  const matches = (s) => (sceneKey === TODAY ? new Date(s.at).toDateString() === today : s.scene === sceneKey);
+  const picked = [];
+  let seconds = 4; // オープニングとエンディングの分
+  const candidates = (await allTerms())
+    .filter((t) => !t.known)
+    .map((t) => ({ t, hit: sightingsOf(t).filter(matches).pop() }))
+    .filter((x) => x.hit)
+    .sort((a, b) => b.t.count - a.t.count); // 何度も出てきた言葉を優先
+  for (const { t, hit } of candidates) {
+    const cost = 2 + (t.reading.length + t.explanation.length) / 7; // 読み上げはおよそ毎秒7文字
+    if (picked.length && seconds + cost > SHORT_SECONDS) continue;
+    picked.push({ ...t, scene: hit.scene, snippet: snippetAround(hit.context, t.word) });
+    seconds += cost;
+  }
+  return picked;
+}
+
+/** 文脈から、その言葉の前後だけを切り出す */
+function snippetAround(context, word) {
+  if (!context) return "";
+  const i = context.indexOf(word);
+  if (i < 0) return context.slice(0, 40) + (context.length > 40 ? "…" : "");
+  const start = Math.max(0, i - 18);
+  const end = Math.min(context.length, i + word.length + 18);
+  return (start > 0 ? "…" : "") + context.slice(start, end) + (end < context.length ? "…" : "");
+}
+
+const short = { run: 0 };
+
+function speak(text) {
+  return new Promise((resolve) => {
+    if (!("speechSynthesis" in window)) return setTimeout(resolve, 1500 + text.length * 120);
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "ja-JP";
+    u.rate = 1.1;
+    const voice = speechSynthesis.getVoices().find((v) => v.lang.startsWith("ja"));
+    if (voice) u.voice = voice;
+    const done = () => { clearTimeout(guard); resolve(); };
+    // 読み上げが止まってしまう端末のための保険
+    const guard = setTimeout(done, 3000 + text.length * 250);
+    u.onend = done;
+    u.onerror = done;
+    speechSynthesis.speak(u);
+  });
+}
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function showSlide(html, progress) {
+  $("#short-stage").innerHTML = `<div class="slide">${html}</div>`;
+  $("#short-progress").style.width = `${progress * 100}%`;
+}
+
+async function playShort() {
+  const sceneKey = $("#short-scene").value;
+  const sceneLabel = sceneKey === TODAY ? "今日" : sceneKey;
+  const terms = await pickShortTerms(sceneKey);
+  if (!terms.length) {
+    $("#short-status").textContent = "この場面で、まだ覚え中の言葉がありません。";
+    return;
+  }
+  $("#short-status").textContent = "";
+  $("#short-player").hidden = false;
+  // 再生ごとに番号を振り、「もう一度」や「閉じる」で古い再生を確実に止める
+  const run = ++short.run;
+  const alive = () => run === short.run;
+  const steps = terms.length + 2;
+
+  showSlide(`<p class="kicker">🎬 復習ショート</p><h2>${esc(sceneLabel)}の言葉</h2><p class="sub">${terms.length}つ</p>`, 0);
+  const where = sceneKey === TODAY ? "今日" : `${sceneLabel}で`;
+  await speak(`${where}出会った言葉を、${terms.length}つ復習しましょう。`);
+
+  for (const [i, t] of terms.entries()) {
+    if (!alive()) return;
+    showSlide(
+      `<p class="kicker">${i + 1} / ${terms.length}</p>
+       <h2 class="word">${esc(t.word)}</h2>
+       <p class="reading">${esc(t.reading)}</p>
+       <p class="meaning">${esc(t.explanation)}</p>
+       ${t.snippet ? `<p class="heard">🎧 ${esc(t.scene)}で<br />「${esc(t.snippet)}」</p>` : ""}`,
+      (i + 1) / steps,
+    );
+    await speak(`${t.reading}。${t.explanation}`);
+    await wait(400);
+  }
+  if (!alive()) return;
+  showSlide(`<h2>おつかれさま！</h2><p class="sub">覚えた言葉は、じしょで「覚えた」を押しましょう</p>`, 1);
+  await speak("おつかれさまでした。");
+}
+
+function stopShort() {
+  short.run++;
+  window.speechSynthesis?.cancel();
+}
+
+$("#short-play").addEventListener("click", playShort);
+$("#short-close").addEventListener("click", () => {
+  stopShort();
+  $("#short-player").hidden = true;
+});
+$("#short-replay").addEventListener("click", () => {
+  stopShort();
+  playShort();
+});
 
 // ---------- 設定 ----------
 $("#about").value = localStorage.getItem("about") || "";

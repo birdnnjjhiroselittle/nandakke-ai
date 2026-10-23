@@ -19,6 +19,7 @@
   <main>
     <!-- 聞く -->
     <section id="tab-listen" class="tab active">
+      <input id="scene" type="text" placeholder="場面の名前（例：講演会、映画「〇〇」）※空なら今日の日付" />
       <button id="listen-toggle" class="big-button">🎙 聞きはじめる</button>
       <div id="listen-status" class="status"></div>
       <div id="transcript" class="transcript" hidden></div>
@@ -32,6 +33,14 @@
 
     <!-- じしょ -->
     <section id="tab-dict" class="tab">
+      <div class="short-box">
+        <h2>🎬 復習ショート（約30秒）</h2>
+        <div class="row">
+          <select id="short-scene"></select>
+          <button id="short-play">▶ 再生</button>
+        </div>
+        <div id="short-status" class="status"></div>
+      </div>
       <p class="hint">これまでに出会った言葉です。「知ってた」にした言葉は、次から解説に出てきません。</p>
       <div class="row filter">
         <button data-filter="learning" class="chip active">覚え中</button>
@@ -67,6 +76,18 @@
       <button id="wipe" class="danger">じしょをすべて削除</button>
     </section>
   </main>
+
+  <!-- 復習ショートの再生画面（縦長） -->
+  <div id="short-player" hidden>
+    <div class="short-frame">
+      <div class="short-bar"><div id="short-progress"></div></div>
+      <div id="short-stage"></div>
+      <div class="short-controls">
+        <button id="short-replay" class="ghost">↻ もう一度</button>
+        <button id="short-close" class="ghost">✕ 閉じる</button>
+      </div>
+    </div>
+  </div>
 
   <nav>
     <button data-tab="listen" class="active">🎙<span>聞く</span></button>
