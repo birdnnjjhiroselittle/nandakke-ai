@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#4338ca" />
+  <!-- 安全のための制限：このアプリ自身のコード以外は実行せず、通信先も Anthropic API だけに限る -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.anthropic.com; img-src 'self' data:; style-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'" />
   <title>なんだっけAI</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
@@ -64,7 +67,8 @@
       <div id="profile-status" class="status"></div>
 
       <h2>Claude APIキー</h2>
-      <p class="hint">キーはこの端末のブラウザ内にだけ保存されます。音声は端末のブラウザで文字にされ、解説するときに文字だけがAnthropicのAPIに送られます。</p>
+      <p class="hint">キーはこの端末のブラウザ内にだけ保存され、AnthropicのAPIにだけ送られます。この端末を他の人と共有している場合は、使い終わったら空欄で保存してキーを消してください。</p>
+      <p class="hint">🎙 音声の文字化はブラウザの音声認識機能を使います。Chromeでは音声がGoogleのサーバーで、SafariではAppleの仕組みで文字になります。文字になった会話の一部が、解説のためにAnthropicのAPIに送られます。録音ファイルはこのアプリでは保存しません。</p>
       <form id="key-form" class="row">
         <input id="api-key" type="password" placeholder="sk-ant-..." autocomplete="off" />
         <button type="submit">保存</button>

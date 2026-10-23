@@ -1,5 +1,6 @@
 // Claude API 呼び出し：聞こえた文章から「この人が知らなさそうな言葉」を拾って解説する
-import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.135.0";
+// 公式SDK（@anthropic-ai/sdk 0.135.0, MIT）をアプリに同梱。外部サイトからコードを読み込まない
+import Anthropic from "./vendor/anthropic-sdk.js";
 
 const MODEL = "claude-opus-5-5";
 
